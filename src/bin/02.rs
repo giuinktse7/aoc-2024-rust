@@ -55,20 +55,19 @@ fn show_levels(levels: &Vec<i32>, separator: &str) -> String {
 
 fn print_result(s: &State, levels: &Vec<i32>, is_safe: bool) {
     let levels_str = show_levels(levels, "");
-    print!("{} ", levels_str);
-    // let levels_str = show_levels(levels, "");
-    // if s.has_removed {
-    //     for (i, level) in levels.iter().enumerate() {
-    //         if !is_safe && i == s.removed_index && i == s.fail_index {
-    //             print!("[{}] ! ", level);
-    //         } else if i == s.removed_index {
-    //             print!("[{}], ", level);
-    //         } else if !is_safe && i == s.fail_index {
-    //             print!("{} ! ", level);
-    //         } else {
-    //             print!("{}, ", level);
-    //         }
-    //     }
+    // print!("{} ", levels_str);
+
+    for (i, level) in levels.iter().enumerate() {
+        if !is_safe && i == s.removed_index && i == s.fail_index {
+            print!("[{}] ! ", level);
+        } else if i == s.removed_index {
+            print!("[{}], ", level);
+        } else if !is_safe && i == s.fail_index {
+            print!("{} ! ", level);
+        } else {
+            print!("{}, ", level);
+        }
+    }
 
     if is_safe {
         print!("[SAFE]");
@@ -99,12 +98,13 @@ fn remove(s: &mut State, levels: &[i32], i: usize) -> bool {
     let new_sgn = match i {
         0 => (levels[2] - levels[1]).signum(),
         1 => (levels[2] - levels[0]).signum(),
-        _ => s.sgn,
+        _ => (levels[1] - levels[0]).signum(),
     };
     // It is always okay to undo a removal of the first element, IF it is compatible with its next element
     if s.removed_index == 0 {
-        let n = if i == 1 { 2 } else { 1 };
-        if !is_safe_level_transition(new_sgn, &levels[0], &levels[n]) {
+        let k = if i == 1 { 2 } else { 1 };
+        // let sgn = (levels[k] - levels[0]).signum();
+        if !is_safe_level_transition(new_sgn, &levels[0], &levels[k]) {
             // Can't undo the removal of the first element
             return false;
         }
@@ -117,36 +117,6 @@ fn remove(s: &mut State, levels: &[i32], i: usize) -> bool {
             return false;
         }
     }
-
-    // Just remove x if we haven't removed anything yet
-    // if !s.has_removed {
-    //     // p1 x n -> p1 [x] n
-    //     let can_remove = match [
-    //         levels.get(i.wrapping_sub(1)).copied(),
-    //         levels.get(i).copied(),
-    //         levels.get(i + 1).copied(),
-    //     ] {
-    //         [Some(p1), Some(_), Some(n)] => {
-    //             // p1 -> n must be safe
-    //             is_safe_level_transition(s.sgn, &p1, &n)
-    //         }
-    //         [None, Some(_), _] => true,
-    //         [Some(_), _, None] => true,
-
-    //         x => panic!("Invalid state: {:?}", x),
-    //     };
-    //     if !can_remove {
-    //         return false;
-    //     }
-
-    //     s.removed_index = i;
-    //     s.removed = levels[i];
-    //     s.has_removed = true;
-    //     s.remove_count += 1;
-
-    //     s.sgn = new_sgn;
-    //     return true;
-    // }
 
     let can_remove = match [
         levels.get(i.wrapping_sub(2)).copied(),
@@ -195,13 +165,43 @@ fn crazy_fn(a: Option<&i32>, b: &i32, c: Option<&i32>) {}
 
 fn keep(a: i32) {}
 
+fn get_sgn(s: &State, levels: &[i32], deleted_index: usize) -> i32 {
+    if deleted_index == 0 {
+        return (levels[2] - levels[1]).signum();
+    } else if deleted_index == 1 {
+        return (levels[2] - levels[0]).signum();
+    } else {
+        return s.sgn;
+    }
+}
+
+fn combinations_n_minus_one<T: Clone>(vec: &[T]) -> impl Iterator<Item = Vec<T>> + '_ {
+    vec.iter().enumerate().map(move |(i, _)| {
+        vec.iter()
+            .enumerate()
+            .filter_map(|(j, item)| if i != j { Some(item.clone()) } else { None })
+            .collect()
+    })
+}
+
+fn check_if_safe_naive(levels: &[i32]) -> bool {
+    combinations_n_minus_one(levels).any(|xs| {
+        let sgn = (xs[1] - xs[0]).signum();
+
+        xs.windows(2).all(|w| match w {
+            [a, b] => is_safe_level_transition(sgn, a, b),
+            _ => false,
+        })
+    })
+}
+
 fn check_if_safe(s: &mut State, levels: &[i32]) -> bool {
     let groups: Vec<(Option<&i32>, Option<&i32>, &i32, Option<&i32>)> = levels
         .iter()
         .enumerate()
         .map(|(i, curr)| {
-            let prev2 = levels.get(i.wrapping_sub(2));
-            let prev = levels.get(i.wrapping_sub(1));
+            let prev2 = i.checked_sub(2).map(|i| &levels[i]);
+            let prev = i.checked_sub(1).map(|i| &levels[i]);
             let next = levels.get(i + 1);
             (prev2, prev, curr, next)
         })
@@ -253,8 +253,9 @@ fn check_if_safe(s: &mut State, levels: &[i32]) -> bool {
 
         if !is_safe {
             // Delete the one before us if possible and try again
+            let sgn = get_sgn(s, levels, i - 1);
             let hm = _next
-                .map(|n| is_safe_level_transition(s.sgn, _curr, n))
+                .map(|n| is_safe_level_transition(sgn, _curr, n))
                 .unwrap_or(false);
             if i != 1 && hm && remove(s, levels, i - 1) {
                 let k = 2;
@@ -369,21 +370,6 @@ pub fn part_two(input: &str) -> Option<usize> {
         remove_count: 0,
     };
 
-    // CONTINUE HERE: Mismatches between old and new. This is the output from new:
-    // 17 19 17 20 23 [UNSAFE]                  CORRECT
-    // 34 31 32 35 36 39 [SAFE]                 CORRECT
-    // 68 65 69 72 74 77 80 83 [SAFE]           CORRECT
-    // 17 20 17 16 15 14 [SAFE]                 CORRECT
-    // 76 79 80 82 83 80 [SAFE]                 CORRECT
-    // 43 44 47 48 49 54 [SAFE]                 CORRECT
-    // 41 42 45 47 48 49 53 51 [UNSAFE]
-    // 23 22 24 27 28 [SAFE]
-    // 54 58 56 58 59 60 [SAFE]
-    // 52 49 48 46 49 [UNSAFE]
-    // 90 89 86 84 83 79 [UNSAFE]
-    // 89 86 85 83 79 82 [UNSAFE]
-    // 39 42 39 37 35 32 [SAFE]
-
     let n_safe_reports = input
         .lines()
         .into_iter()
@@ -411,6 +397,8 @@ pub fn part_two(input: &str) -> Option<usize> {
             // }
 
             let is_safe = check_if_safe(&mut s, levels.as_ref());
+            // let is_safe = check_if_safe_naive(levels.as_ref());
+
             // If heuristic wants to remove but we don't, log it
             // if !heuristic_safe && is_safe {
             //     println!(
@@ -427,6 +415,7 @@ pub fn part_two(input: &str) -> Option<usize> {
     // > 534
     // < 543
     // 537 is wrong
+    // 535 is wrong
     Some(n_safe_reports)
 }
 
